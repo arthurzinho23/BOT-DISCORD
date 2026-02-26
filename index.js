@@ -26,11 +26,9 @@ function cleanEnvVar(value, name) {
     cleaned = cleaned.trim();
     
     // Remove quebras de linha (causa principal do erro "Invalid Authorization header")
-    if (cleaned.match(/[
-]/)) {
+    if (cleaned.match(/[\r\n]/)) {
         console.log(`[CORREÇÃO] Removendo quebras de linha detectadas em ${name}`);
-        cleaned = cleaned.replace(/[
-]/g, '');
+        cleaned = cleaned.replace(/[\r\n]/g, '');
     }
 
     return cleaned;
