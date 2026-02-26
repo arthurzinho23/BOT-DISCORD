@@ -7,27 +7,58 @@ require('dotenv').config();
 console.log('[BOOT] Iniciando sistema...');
 
 // --- DIAGNÓSTICO DE AMBIENTE ---
+// --- DIAGNÓSTICO E LIMPEZA DE VARIÁVEIS ---
 console.log('[DEBUG] Variáveis de ambiente carregadas:', Object.keys(process.env).join(', '));
 
-if (process.env.DISCORD_TOKEN) {
-    console.log(`[DEBUG] DISCORD_TOKEN encontrado (Comprimento: ${process.env.DISCORD_TOKEN.length})`);
-} else {
-    console.error('[ERRO FATAL] DISCORD_TOKEN não está definido!');
+let TOKEN = process.env.DISCORD_TOKEN;
+let CLIENT_ID = process.env.CLIENT_ID;
+
+// Função de limpeza agressiva
+function cleanEnvVar(value, name) {
+    if (!value) return null;
+    
+    let cleaned = value;
+    
+    // Remove aspas extras (comuns ao copiar de .env mal formatado)
+    cleaned = cleaned.replace(/^["']|["']$/g, '');
+    
+    // Remove espaços em branco nas pontas
+    cleaned = cleaned.trim();
+    
+    // Remove quebras de linha (causa principal do erro "Invalid Authorization header")
+    if (cleaned.match(/[
+]/)) {
+        console.log(`[CORREÇÃO] Removendo quebras de linha detectadas em ${name}`);
+        cleaned = cleaned.replace(/[
+]/g, '');
+    }
+
+    return cleaned;
 }
 
-// --- VERIFICAÇÃO DE VARIÁVEIS ---
-if (!process.env.DISCORD_TOKEN) {
-    console.error('[ERRO FATAL] O bot não pode iniciar sem o token. Verifique se o nome da variável no Render é EXATAMENTE "DISCORD_TOKEN".');
-    process.exit(1);
-}
-if (!process.env.CLIENT_ID) {
-    console.error('[ERRO FATAL] CLIENT_ID não encontrado. O bot precisa do ID da aplicação para registrar comandos.');
-    process.exit(1);
-}
-
-const TOKEN = process.env.DISCORD_TOKEN ? process.env.DISCORD_TOKEN.replace(/^"|"$/g, '').trim() : null;
-const CLIENT_ID = process.env.CLIENT_ID ? process.env.CLIENT_ID.replace(/^"|"$/g, '').trim() : null;
+TOKEN = cleanEnvVar(TOKEN, 'DISCORD_TOKEN');
+CLIENT_ID = cleanEnvVar(CLIENT_ID, 'CLIENT_ID');
 const GUILD_ID = process.env.GUILD_ID;
+
+if (TOKEN) {
+    console.log(`[DEBUG] Token processado (Comprimento final: ${TOKEN.length})`);
+    
+    // Verificações de sanidade
+    if (TOKEN.length > 100) {
+        console.error('⚠️ [ALERTA] O Token tem ${TOKEN.length} caracteres. Isso é MUITO LONGO (normal é ~72).');
+        console.error('👉 Verifique se você não colou o token duas vezes ou copiou a chave errada.');
+    }
+    if (TOKEN.startsWith('Bot ')) {
+        console.log('ℹ️ [AUTO-FIX] Removendo prefixo "Bot " do token...');
+        TOKEN = TOKEN.slice(4).trim();
+    }
+} else {
+    console.error('❌ [ERRO FATAL] DISCORD_TOKEN não está definido!');
+}
+
+if (!CLIENT_ID) {
+    console.error('❌ [ERRO FATAL] CLIENT_ID não está definido!');
+}
 const EXTERNAL_API_URL = 'https://fvmp-tau.vercel.app/';
 
 // --- TRATAMENTO DE ERROS GLOBAIS ---
@@ -46,6 +77,20 @@ const client = new Client({
         GatewayIntentBits.MessageContent
     ]
 });
+
+// --- DEBUGGING AVANÇADO (Essencial para diagnosticar falhas de conexão) ---
+client.on('debug', info => {
+    // Ignora heartbeats para não poluir o log, mas mostra tudo o resto
+    if (!info.toLowerCase().includes('heartbeat')) {
+        console.log(`[DISCORD DEBUG] ${info}`);
+    }
+});
+client.on('warn', info => console.warn(`[DISCORD WARN] ${info}`));
+client.on('error', error => console.error(`[DISCORD ERROR] ${error.message}`));
+client.on('shardError', error => console.error(`[SHARD ERROR] ${error.message}`));
+client.on('shardReady', id => console.log(`[SHARD READY] Shard ${id} está pronto!`));
+client.on('shardDisconnect', (event, id) => console.log(`[SHARD DISCONNECT] Shard ${id} desconectou (Code: ${event.code})`));
+client.on('shardReconnecting', id => console.log(`[SHARD RECONNECTING] Shard ${id} tentando reconectar...`));
 
 // --- EXPRESS SERVER (Essencial para o Render não matar o processo) ---
 const app = express();
