@@ -155,4 +155,11 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-client.login(TOKEN);
+if (TOKEN) {
+    console.log(`[DISCORD] Tentando autenticar com token (Tamanho: ${TOKEN.length})...`);
+    client.login(TOKEN).catch(err => {
+        console.error('[ERRO CRÍTICO] Falha ao logar no Discord:', err);
+    });
+} else {
+    console.error('[ERRO] Não foi possível tentar login pois o TOKEN não existe.');
+}
