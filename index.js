@@ -1,165 +1,117 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const express = require('express');
-const axios = require('axios');
-const startWaker = require('./waker');
 require('dotenv').config();
 
-console.log('[BOOT] Iniciando sistema...');
+console.log('[BOOT] Iniciando Bot 911...');
 
-// --- TRATAMENTO DE ERROS GLOBAIS ---
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ [ERRO NÃO TRATADO] Rejeição:', reason);
-});
-process.on('uncaughtException', (error) => {
-    console.error('❌ [ERRO CRÍTICO] Exceção:', error);
-});
-
-// --- WEB SERVER ---
+// --- 1. SERVIDOR WEB ---
 const app = express();
 const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('Bot Online 🟢'));
+app.listen(PORT, () => console.log(`🌐 Web Server rodando na porta ${PORT}`));
 
-app.get("/", (req, res) => res.send("Bot 911 Online 🚨"));
-app.get("/status", (req, res) => res.json({ status: "online", uptime: process.uptime() }));
+// --- 2. CONFIGURAÇÃO ---
+const TOKEN = process.env.DISCORD_TOKEN ? process.env.DISCORD_TOKEN.replace(/['"]/g, '').trim() : null;
+const GUILD_ID = process.env.GUILD_ID;
 
-app.listen(PORT, () => {
-    console.log("🌐 Server running on port " + PORT);
-    const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
-    startWaker(APP_URL);
-});
+function getClientId(token) {
+    try { return Buffer.from(token.split('.')[0], 'base64').toString('utf-8'); } 
+    catch (e) { return null; }
+}
+const CLIENT_ID = process.env.CLIENT_ID || (TOKEN ? getClientId(TOKEN) : null);
 
-// --- DISCORD CLIENT ---
+// --- 3. CLIENTE ---
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent // IMPORTANTE: Precisa estar ativado no Dev Portal
+        GatewayIntentBits.MessageContent
     ]
 });
 
-const EXTERNAL_API_URL = 'https://fvmp-tau.vercel.app/';
-
-// --- CONFIGURAÇÃO ---
-function getClientId(token) {
-    try {
-        return Buffer.from(token.split('.')[0], 'base64').toString('utf-8');
-    } catch (e) { return null; }
-}
-
-const TOKEN = process.env.DISCORD_TOKEN?.replace(/^"|"$/g, '').trim();
-const CLIENT_ID = process.env.CLIENT_ID || (TOKEN ? getClientId(TOKEN) : null);
-const GUILD_ID = process.env.GUILD_ID; // Opcional: Para registro instantâneo
-
-if (!TOKEN) console.error("❌ [ERRO FATAL] DISCORD_TOKEN faltando!");
-
-// --- COMANDOS ---
+// --- 4. COMANDOS ---
 const commands = [
-    new SlashCommandBuilder().setName('ponto').setDescription('🛂 Abre o painel de ponto'),
-    new SlashCommandBuilder().setName('ranking').setDescription('🏆 Exibe o ranking')
-        .addStringOption(o => o.setName('periodo').setDescription('Período').addChoices({ name: 'Total', value: 'total' }, { name: 'Semanal', value: 'semanal' }, { name: 'Mensal', value: 'mensal' })),
-    new SlashCommandBuilder().setName('anular').setDescription('⚠️ Anula ponto (Admin)').addUserOption(o => o.setName('usuario').setDescription('Alvo').setRequired(true)),
-    new SlashCommandBuilder().setName('help').setDescription('ℹ️ Ajuda'),
+    // ATENÇÃO: Mantenha as aspas nos nomes dos comandos!
+    new SlashCommandBuilder().setName('ponto').setDescription('🛂 Abrir painel de ponto'),
+    new SlashCommandBuilder().setName('ranking').setDescription('🏆 Ver ranking de horas'),
+    new SlashCommandBuilder().setName('help').setDescription('ℹ️ Ver ajuda'),
+    new SlashCommandBuilder().setName('debug').setDescription('🛠️ Status do sistema')
 ];
 
-// --- REGISTRO DE COMANDOS ---
-async function refreshCommands() {
-    if (!TOKEN || !CLIENT_ID) return false;
+// --- 5. DEPLOY ---
+async function deployCommands() {
+    if (!TOKEN || !CLIENT_ID) return console.error('❌ Token ou Client ID faltando.');
+    
     const rest = new REST({ version: '10' }).setToken(TOKEN);
     try {
-        console.log('🔄 [UPDATE] Atualizando comandos...');
-        
-        // Se tiver GUILD_ID, registra lá (instantâneo). Se não, registra Global (pode demorar 1h)
+        console.log(`🔄 Deploy de ${commands.length} comandos...`);
         if (GUILD_ID) {
             await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-            console.log(`✅ [UPDATE] Comandos registrados na GUILD ${GUILD_ID} (Instantâneo)`);
+            console.log(`✅ Comandos na GUILD ${GUILD_ID}`);
         } else {
             await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-            console.log('✅ [UPDATE] Comandos registrados GLOBALMENTE (Pode demorar até 1h para aparecer)');
+            console.log('✅ Comandos GLOBAIS (Demora ~1h)');
         }
-        return true;
     } catch (error) {
-        console.error('❌ [ERRO UPDATE]', error);
-        return false;
+        console.error('❌ Erro no deploy:', error);
     }
 }
 
-client.once("ready", async () => {
+// --- 6. EVENTOS ---
+client.once('ready', async () => {
     console.log(`✅ Logado como ${client.user.tag}`);
-    await refreshCommands();
+    await deployCommands();
 });
 
-// --- DIAGNÓSTICO DE MENSAGENS (DEBUG) ---
-client.on("messageCreate", async (message) => {
-    if (message.author.bot) return;
-
-    // Log para verificar se o bot está "vendo" mensagens (Testa o Intent MessageContent)
-    console.log(`[MSG] Recebida de ${message.author.tag}: ${message.content}`);
-
-    if (message.content === "!debug") {
-        const success = await refreshCommands();
-        const embed = new EmbedBuilder()
-            .setColor(success ? 0x00FF00 : 0xFF0000)
-            .setTitle('🛠️ Debug Tool')
-            .setDescription(success ? '✅ Comandos Atualizados!' : '❌ Falha na atualização')
-            .addFields(
-                { name: 'Ping', value: `${client.ws.ping}ms`, inline: true },
-                { name: 'Guild ID', value: GUILD_ID || 'Não definido (Modo Global)', inline: true },
-                { name: 'Intents', value: 'Verifique se Message Content está ativo no Portal', inline: false }
-            );
-        message.reply({ embeds: [embed] });
-    }
-});
-
-// --- INTERAÇÕES ---
 client.on('interactionCreate', async interaction => {
-    console.log(`[INTERAÇÃO] Recebida: ${interaction.type} | Command: ${interaction.commandName || interaction.customId}`);
+    try {
+        if (interaction.isChatInputCommand()) {
+            const { commandName } = interaction;
+            console.log(`[CMD] /${commandName}`);
 
-    if (interaction.isChatInputCommand()) {
-        const { commandName } = interaction;
+            // VERIFICAÇÃO DE COMANDOS
+            if (commandName === 'ponto') {
+                const embed = new EmbedBuilder()
+                    .setTitle('🛂 Controle de Ponto')
+                    .setDescription('Gerencie seu turno abaixo:')
+                    .setColor(0x0099FF);
 
-        if (commandName === 'ponto') {
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`iniciar_${interaction.user.id}`).setLabel('Iniciar').setStyle(ButtonStyle.Success).setEmoji('🟢'),
-                new ButtonBuilder().setCustomId(`pausar_${interaction.user.id}`).setLabel('Pausar').setStyle(ButtonStyle.Secondary).setEmoji('⏸️'),
-                new ButtonBuilder().setCustomId(`finalizar_${interaction.user.id}`).setLabel('Finalizar').setStyle(ButtonStyle.Danger).setEmoji('🔴')
-            );
-            await interaction.reply({ 
-                embeds: [new EmbedBuilder().setTitle('🛂 Ponto 911').setDescription('Gerencie seu turno abaixo.').setColor(0x2F3136)], 
-                components: [row] 
-            });
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('iniciar').setLabel('Iniciar').setStyle(ButtonStyle.Success).setEmoji('🟢'),
+                    new ButtonBuilder().setCustomId('pausar').setLabel('Pausar').setStyle(ButtonStyle.Secondary).setEmoji('⏸️'),
+                    new ButtonBuilder().setCustomId('finalizar').setLabel('Finalizar').setStyle(ButtonStyle.Danger).setEmoji('🔴')
+                );
+                
+                await interaction.reply({ embeds: [embed], components: [row] });
+            }
+            else if (commandName === 'help') {
+                // Removido backticks internos para evitar erros de cópia
+                await interaction.reply({ content: 'Comandos: /ponto, /ranking, /debug', ephemeral: true });
+            }
+            else if (commandName === 'ranking') {
+                await interaction.reply('🏆 Ranking: Em desenvolvimento.');
+            }
+            else if (commandName === 'debug') {
+                await interaction.reply(`🛠️ Ping: ${client.ws.ping}ms`);
+            }
         }
 
-        if (commandName === 'help') {
-            await interaction.reply({ embeds: [new EmbedBuilder().setTitle('ℹ️ Ajuda').setDescription('Comandos: /ponto, /ranking, /anular, !debug').setColor(0x5865F2)], ephemeral: true });
-        }
+        if (interaction.isButton()) {
+            const action = interaction.customId;
+            console.log(`[BTN] ${action}`);
+            
+            const messages = {
+                'iniciar': '✅ Ponto iniciado!',
+                'pausar': '⏸️ Ponto pausado.',
+                'finalizar': '🔴 Ponto finalizado.'
+            };
 
-        if (commandName === 'ranking') {
-            await interaction.reply({ embeds: [new EmbedBuilder().setTitle('🏆 Ranking').setDescription('Funcionalidade em desenvolvimento.').setColor(0xFFD700)] });
+            await interaction.reply({ content: messages[action] || 'Erro', ephemeral: true });
         }
-        
-        if (commandName === 'anular') {
-             if (!interaction.member.permissions.has('Administrator')) return interaction.reply({ content: '⛔ Sem permissão.', ephemeral: true });
-             await interaction.reply({ content: `⚠️ Ponto de ${interaction.options.getUser('usuario')} anulado.`, ephemeral: true });
-        }
-    }
-
-    if (interaction.isButton()) {
-        const [action, userId] = interaction.customId.split('_');
-        if (interaction.user.id !== userId) return interaction.reply({ content: '🔒 Apenas quem abriu o painel pode usar.', ephemeral: true });
-
-        await interaction.deferReply({ ephemeral: true });
-        
-        // Aqui você faria o axios.post para sua API
-        
-        const msgs = { 'iniciar': '🟢 Iniciado', 'pausar': '⏸️ Pausado', 'finalizar': '🔴 Finalizado' };
-        await interaction.editReply({ content: `✅ Ponto **${msgs[action]}** com sucesso!` });
+    } catch (error) {
+        console.error('❌ Erro:', error);
     }
 });
 
-if (TOKEN) {
-    console.log(`[DISCORD] Tentando autenticar com token (Tamanho: ${TOKEN.length})...`);
-    client.login(TOKEN).catch(err => {
-        console.error('[ERRO CRÍTICO] Falha ao logar no Discord:', err);
-    });
-} else {
-    console.error('[ERRO] Não foi possível tentar login pois o TOKEN não existe.');
-}
+if (TOKEN) client.login(TOKEN).catch(e => console.error('❌ Login erro:', e));
+else console.error('❌ Sem Token');
