@@ -186,9 +186,14 @@ const commands = [
 // --- REGISTRO DE COMANDOS ---
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-(async () => {
+// --- EVENTOS DO BOT ---
+client.once('ready', async () => {
+    console.log(`[DISCORD] Bot ONLINE! Logado como ${client.user.tag}`);
+    console.log(`[DISCORD] Estou em ${client.guilds.cache.size} servidores.`);
+
     try {
-        console.log('[COMANDOS] Iniciando registro de comandos (/).');
+        console.log('[COMANDOS] Registrando comandos...');
+
         if (GUILD_ID) {
             await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
             console.log('[COMANDOS] Registrados na GUILD específica.');
@@ -199,12 +204,6 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
     } catch (error) {
         console.error('[ERRO] Falha ao registrar comandos:', error);
     }
-})();
-
-// --- EVENTOS DO BOT ---
-client.once('ready', () => {
-    console.log(`[DISCORD] Bot ONLINE! Logado como ${client.user.tag}`);
-    console.log(`[DISCORD] Estou em ${client.guilds.cache.size} servidores.`);
 });
 
 // Comando !debug
