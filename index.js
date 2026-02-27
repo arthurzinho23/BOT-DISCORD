@@ -6,16 +6,30 @@ require('dotenv').config();
 
 console.log('[BOOT] Iniciando sistema...');
 
+// --- TRATAMENTO DE ERROS GLOBAIS (EVITA QUE O BOT DESLIGUE) ---
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ [ERRO NÃO TRATADO] Rejeição:', reason);
+});
+process.on('uncaughtException', (error) => {
+    console.error('❌ [ERRO CRÍTICO] Exceção:', error);
+});
+
 // --- WEB SERVER (Express) ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => res.send("Bot 911 Online 🚨"));
+app.get("/status", (req, res) => res.json({ status: "online", uptime: process.uptime() }));
 
 app.listen(PORT, () => {
     console.log("🌐 Server running on port " + PORT);
     const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
     startWaker(APP_URL);
+    
+    // Log periódico para mostrar que o processo está vivo
+    setInterval(() => {
+        console.log(`[STATUS] Sistema rodando há ${Math.floor(process.uptime())}s`);
+    }, 60000); // Log a cada 1 minuto
 });
 
 // --- DISCORD CLIENT ---
@@ -98,32 +112,40 @@ client.once("ready", async () => {
     // 1. Atualização Automática de Comandos
     const success = await refreshCommands();
 
-    // 2. Notificação de Inicialização
+    // 2. Notificação de Inicialização (Com proteção extra)
     const targetId = '1467148882772234301';
-    try {
-        // Tenta buscar como canal primeiro
-        const channel = await client.channels.fetch(targetId).catch(() => null);
-        
-        const statusMsg = success 
-            ? "✅ **Bot Atualizado e Online!** Comandos sincronizados com sucesso. 🚀" 
-            : "⚠️ **Bot Online**, mas houve erro na sincronização de comandos.";
+    
+    // Pequeno delay para garantir que o cache carregue
+    setTimeout(async () => {
+        try {
+            console.log(`[NOTIFICAÇÃO] Tentando enviar mensagem para ID: ${targetId}`);
+            
+            // Tenta buscar usuário primeiro (mais comum para DMs diretas)
+            let target = await client.users.fetch(targetId).catch(() => null);
+            let isUser = true;
 
-        if (channel && channel.isTextBased()) {
-            await channel.send(statusMsg);
-            console.log(`[NOTIFICAÇÃO] Mensagem enviada para o canal ${channel.name}`);
-        } else {
-            // Se não for canal, tenta como usuário (DM)
-            const user = await client.users.fetch(targetId).catch(() => null);
-            if (user) {
-                await user.send(statusMsg);
-                console.log(`[NOTIFICAÇÃO] DM enviada para ${user.tag}`);
-            } else {
-                console.warn(`[AVISO] ID ${targetId} não encontrado (não é canal nem usuário acessível).`);
+            // Se não achou usuário, tenta canal
+            if (!target) {
+                target = await client.channels.fetch(targetId).catch(() => null);
+                isUser = false;
             }
+
+            if (!target) {
+                console.warn(`⚠️ [AVISO] Não foi possível encontrar Usuário ou Canal com ID ${targetId}. Verifique se o bot compartilha um servidor com o usuário ou se o ID está correto.`);
+                return;
+            }
+
+            const statusMsg = success 
+                ? "✅ **Bot Reiniciado e Atualizado!** Comandos (/) sincronizados. 🚀" 
+                : "⚠️ **Bot Online**, mas houve erro na sincronização de comandos.";
+
+            await target.send(statusMsg);
+            console.log(`✅ [SUCESSO] Notificação enviada para ${isUser ? 'Usuário' : 'Canal'} (${targetId})`);
+
+        } catch (error) {
+            console.error(`❌ [ERRO NOTIFICAÇÃO] Falha ao enviar mensagem: ${error.message}`);
         }
-    } catch (error) {
-        console.error(`[ERRO] Falha ao enviar notificação de start: ${error.message}`);
-    }
+    }, 3000); // Espera 3 segundos após login
 });
 
 // --- COMANDO !DEBUG (PREFIXO) ---
