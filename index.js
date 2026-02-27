@@ -2,25 +2,35 @@ const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuild
 const express = require('express');
 require('dotenv').config();
 
-console.log('[BOOT] Iniciando Bot 911...');
+console.log('[BOOT] 1. Iniciando script...');
 
-// --- 1. SERVIDOR WEB ---
+// --- SERVIDOR WEB ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Bot Online 🟢'));
-app.listen(PORT, () => console.log(`🌐 Web Server rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log(`[BOOT] 2. Web Server rodando na porta ${PORT}`));
 
-// --- 2. CONFIGURAÇÃO ---
-const TOKEN = process.env.DISCORD_TOKEN ? process.env.DISCORD_TOKEN.replace(/['"]/g, '').trim() : null;
+// --- CONFIGURAÇÃO ---
+console.log('[BOOT] 3. Lendo variáveis de ambiente...');
+const rawToken = process.env.DISCORD_TOKEN;
+const TOKEN = rawToken ? rawToken.replace(/['"]/g, '').trim() : null;
+
+if (!TOKEN) {
+    console.error('❌ [ERRO CRÍTICO] Variável DISCORD_TOKEN não encontrada ou vazia!');
+    console.error('-> Verifique no Render: Dashboard > Environment > Environment Variables');
+} else {
+    console.log(`[BOOT] Token detectado (Tamanho: ${TOKEN.length} caracteres)`);
+}
+
 const GUILD_ID = process.env.GUILD_ID;
-
+// Tenta obter Client ID do token se não estiver definido
 function getClientId(token) {
     try { return Buffer.from(token.split('.')[0], 'base64').toString('utf-8'); } 
     catch (e) { return null; }
 }
 const CLIENT_ID = process.env.CLIENT_ID || (TOKEN ? getClientId(TOKEN) : null);
 
-// --- 3. CLIENTE ---
+// --- CLIENTE ---
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -29,38 +39,36 @@ const client = new Client({
     ]
 });
 
-// --- 4. COMANDOS ---
+// --- COMANDOS ---
 const commands = [
-    // ATENÇÃO: Mantenha as aspas nos nomes dos comandos!
     new SlashCommandBuilder().setName('ponto').setDescription('🛂 Abrir painel de ponto'),
     new SlashCommandBuilder().setName('ranking').setDescription('🏆 Ver ranking de horas'),
     new SlashCommandBuilder().setName('help').setDescription('ℹ️ Ver ajuda'),
     new SlashCommandBuilder().setName('debug').setDescription('🛠️ Status do sistema')
 ];
 
-// --- 5. DEPLOY ---
-async function deployCommands() {
-    if (!TOKEN || !CLIENT_ID) return console.error('❌ Token ou Client ID faltando.');
-    
-    const rest = new REST({ version: '10' }).setToken(TOKEN);
-    try {
-        console.log(`🔄 Deploy de ${commands.length} comandos...`);
-        if (GUILD_ID) {
-            await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-            console.log(`✅ Comandos na GUILD ${GUILD_ID}`);
-        } else {
-            await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-            console.log('✅ Comandos GLOBAIS (Demora ~1h)');
-        }
-    } catch (error) {
-        console.error('❌ Erro no deploy:', error);
-    }
-}
-
-// --- 6. EVENTOS ---
+// --- EVENTOS ---
 client.once('ready', async () => {
-    console.log(`✅ Logado como ${client.user.tag}`);
-    await deployCommands();
+    console.log(`✅ [DISCORD] Logado com sucesso como ${client.user.tag}`);
+    
+    // Deploy de comandos
+    if (CLIENT_ID) {
+        const rest = new REST({ version: '10' }).setToken(TOKEN);
+        try {
+            console.log('🔄 [DISCORD] Iniciando registro de comandos...');
+            if (GUILD_ID) {
+                await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+                console.log(`✅ [DISCORD] Comandos registrados na GUILD ${GUILD_ID}`);
+            } else {
+                await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+                console.log('✅ [DISCORD] Comandos registrados GLOBALMENTE');
+            }
+        } catch (error) {
+            console.error('❌ [DISCORD] Erro ao registrar comandos:', error);
+        }
+    } else {
+        console.warn('⚠️ [DISCORD] CLIENT_ID não definido. Comandos não foram atualizados.');
+    }
 });
 
 client.on('interactionCreate', async interaction => {
@@ -69,7 +77,6 @@ client.on('interactionCreate', async interaction => {
             const { commandName } = interaction;
             console.log(`[CMD] /${commandName}`);
 
-            // VERIFICAÇÃO DE COMANDOS
             if (commandName === 'ponto') {
                 const embed = new EmbedBuilder()
                     .setTitle('🛂 Controle de Ponto')
@@ -85,7 +92,6 @@ client.on('interactionCreate', async interaction => {
                 await interaction.reply({ embeds: [embed], components: [row] });
             }
             else if (commandName === 'help') {
-                // Removido backticks internos para evitar erros de cópia
                 await interaction.reply({ content: 'Comandos: /ponto, /ranking, /debug', ephemeral: true });
             }
             else if (commandName === 'ranking') {
@@ -113,5 +119,15 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-if (TOKEN) client.login(TOKEN).catch(e => console.error('❌ Login erro:', e));
-else console.error('❌ Sem Token');
+// --- LOGIN ---
+if (TOKEN) {
+    console.log('[BOOT] 4. Tentando conectar ao Discord...');
+    client.login(TOKEN)
+        .then(() => console.log('[BOOT] 5. Login solicitado com sucesso (aguardando evento ready)...'))
+        .catch(err => {
+            console.error('❌ [ERRO FATAL] Falha ao conectar no Discord:');
+            console.error(err);
+        });
+} else {
+    console.error('❌ [ERRO FATAL] Impossível conectar: Sem Token.');
+}
