@@ -4,16 +4,21 @@ const axios = require('axios');
 const startWaker = require('./waker');
 require('dotenv').config();
 
+console.log('[BOOT] Iniciando sistema...');
+
+// --- WEB SERVER (Express) ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => res.send("Bot 911 Online 🚨"));
+
 app.listen(PORT, () => {
     console.log("🌐 Server running on port " + PORT);
     const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
     startWaker(APP_URL);
 });
 
+// --- DISCORD CLIENT ---
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -34,7 +39,11 @@ function getClientId(token) {
 }
 
 const TOKEN = process.env.DISCORD_TOKEN?.replace(/^"|"$/g, '').trim();
-const CLIENT_ID = process.env.CLIENT_ID || getClientId(TOKEN);
+const CLIENT_ID = process.env.CLIENT_ID || (TOKEN ? getClientId(TOKEN) : null);
+
+if (!TOKEN) {
+    console.error("❌ [ERRO FATAL] DISCORD_TOKEN não encontrado nas variáveis de ambiente.");
+}
 
 // --- DEFINIÇÃO DOS COMANDOS (SLASH) ---
 const commands = [
@@ -242,4 +251,10 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-client.login(TOKEN);
+if (TOKEN) {
+    client.login(TOKEN).catch(err => {
+        console.error('[ERRO CRÍTICO] Falha ao logar no Discord:', err);
+    });
+} else {
+    console.error('[ERRO] Não foi possível tentar login pois o TOKEN não existe.');
+}
